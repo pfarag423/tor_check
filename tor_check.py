@@ -265,17 +265,42 @@ FIREWALL_GENERATORS = {
 }
 
 
-def firewall_rule(ip: str, fmt: str) -> str:
+def load_vendor_file(path: str) -> dict:
+    """Load a YAML vendor file and return a dict of name -> generator callable."""
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyyaml is required for --vendor-file (pip install pyyaml).") from exc
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read vendor file: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise RuntimeError(f"Invalid YAML in {path}: {exc}") from exc
+
+    result = {}
+    for name, spec in (data or {}).get("vendors", {}).items():
+        prefix = spec.get("prefix", "")
+        suffix = spec.get("suffix", "")
+        result[name] = lambda ip, p=prefix, s=suffix: f"{p}{ip}{s}"
+    return result
+
+
+def firewall_rule(ip: str, fmt: str, generators: dict | None = None) -> str:
+    gens = generators if generators is not None else FIREWALL_GENERATORS
     if fmt == "all":
-        return "\n\n".join(FIREWALL_GENERATORS[f](ip)
-                           for f in sorted(FIREWALL_GENERATORS))
-    return FIREWALL_GENERATORS[fmt](ip)
+        return "\n\n".join(gens[f](ip) for f in sorted(gens))
+    return gens[fmt](ip)
 
 
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
-def analyse_ip(exit_ip: str, dest_ip: str | None, port: int, fmt: str | None) -> None:
+def analyse_ip(exit_ip: str, dest_ip: str | None, port: int, fmt: str | None,
+               generators: dict | None = None) -> None:
+    gens = generators if generators is not None else FIREWALL_GENERATORS
     version = ipaddress.ip_address(exit_ip).version
     print(f"Starting Analysis (IPv{version})")
     try:
@@ -298,14 +323,14 @@ def analyse_ip(exit_ip: str, dest_ip: str | None, port: int, fmt: str | None) ->
         return
 
     if fmt is None:
-        choices = sorted(FIREWALL_GENERATORS) + ["all"]
+        choices = sorted(gens) + ["all"]
         prompt = "Which firewall format? [" + ", ".join(choices) + "] "
         fmt = input(prompt).strip().lower()
         while fmt not in choices:
             fmt = input("Pick one of [" + ", ".join(choices) + "]: ").strip().lower()
 
     print()
-    print(firewall_rule(exit_ip, fmt))
+    print(firewall_rule(exit_ip, fmt, gens))
 
 
 def read_ips(path: str):
@@ -317,7 +342,8 @@ def read_ips(path: str):
                 yield lineno, token
 
 
-def process_batch(path: str, dest_ip: str | None, port: int, fmt: str | None) -> None:
+def process_batch(path: str, dest_ip: str | None, port: int, fmt: str | None,
+                  generators: dict | None = None) -> None:
     """Non-interactive: check every IP in the file and report results."""
     try:
         entries = list(read_ips(path))
@@ -349,7 +375,7 @@ def process_batch(path: str, dest_ip: str | None, port: int, fmt: str | None) ->
         print("\n# ---- Firewall block syntax for confirmed Tor exits ----")
         for ip in tor_hits:
             print()
-            print(firewall_rule(ip, fmt))
+            print(firewall_rule(ip, fmt, generators))
 
 
 def valid_ip(value: str) -> str:
@@ -383,11 +409,13 @@ def main() -> None:
                              "relay-level Onionoo check is used; ignored for IPv6")
     parser.add_argument("--port", type=int, default=443,
                         help="destination port to test for IPv4 (default: 443)")
-    parser.add_argument("--firewall-format",
-                        choices=sorted(FIREWALL_GENERATORS) + ["all"],
-                        default=None,
+    parser.add_argument("--firewall-format", default=None, metavar="FMT",
                         help="vendor syntax to emit if the IP is a Tor exit "
-                             "('all' dumps every vendor)")
+                             "('all' dumps every vendor); built-ins: "
+                             + ", ".join(sorted(FIREWALL_GENERATORS)) + ", all")
+    parser.add_argument("--vendor-file", metavar="FILE", default=None,
+                        help="YAML file defining custom vendor output formats "
+                             "(needs pyyaml)")
     args = parser.parse_args()
 
     if not 0 < args.port <= 65535:
@@ -396,15 +424,30 @@ def main() -> None:
     if bool(args.ip) == bool(args.batch):
         parser.error("provide exactly one of: an IP argument or --batch FILE")
 
+    generators = dict(FIREWALL_GENERATORS)
+    if args.vendor_file:
+        try:
+            generators.update(load_vendor_file(args.vendor_file))
+        except RuntimeError as exc:
+            parser.error(str(exc))
+
+    if args.firewall_format and args.firewall_format != "all" \
+            and args.firewall_format not in generators:
+        valid = sorted(generators) + ["all"]
+        parser.error(
+            f"--firewall-format: invalid choice {args.firewall_format!r} "
+            f"(choose from: {', '.join(valid)})")
+
     if args.batch:
-        process_batch(args.batch, args.dest_ip, args.port, args.firewall_format)
+        process_batch(args.batch, args.dest_ip, args.port, args.firewall_format,
+                      generators)
         return
 
     if args.dest_ip is not None and ipaddress.ip_address(args.ip).version == 6:
         print("Note: --dest-ip/--port are ignored for IPv6 (Onionoo is relay-level).",
               file=sys.stderr)
 
-    analyse_ip(args.ip, args.dest_ip, args.port, args.firewall_format)
+    analyse_ip(args.ip, args.dest_ip, args.port, args.firewall_format, generators)
 
 
 if __name__ == "__main__":

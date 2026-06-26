@@ -51,7 +51,7 @@ default.
 ## Usage
 
 ```
-tor_check.py [ip] [--batch FILE] [--dest-ip IP] [--port N] [--firewall-format FMT]
+tor_check.py [ip] [--batch FILE] [--dest-ip IP] [--port N] [--firewall-format FMT] [--vendor-file FILE]
 ```
 
 | Argument | Description |
@@ -60,7 +60,8 @@ tor_check.py [ip] [--batch FILE] [--dest-ip IP] [--port N] [--firewall-format FM
 | `--batch FILE` | Check many IPs listed in a file (see [Batch mode](#batch-mode)). |
 | `--dest-ip IP` | *Optional.* Destination IPv4 the exit would connect to. Upgrades an IPv4 check to the precise DNSEL `ip-port` lookup (needs dnspython). Ignored for IPv6. |
 | `--port N` | Destination port for the DNSEL check (default: `443`; only used with `--dest-ip`). |
-| `--firewall-format FMT` | Vendor syntax to emit for confirmed exits. One of the [supported formats](#firewall-formats) or `all`. |
+| `--firewall-format FMT` | Vendor syntax to emit for confirmed exits. One of the [supported formats](#firewall-formats), a name from `--vendor-file`, or `all`. |
+| `--vendor-file FILE` | YAML file defining custom vendor output formats (see [Custom vendor file](#custom-vendor-file)). Needs pyyaml. |
 
 Exactly one of `ip` or `--batch` must be provided.
 
@@ -169,27 +170,35 @@ Both IPv4 and IPv6 variants are produced as appropriate.
 
 ---
 
-## Future thoughts
+## Custom vendor file
 
-### Vendor-defined output via YAML
+Use `--vendor-file` to extend (or override) the built-in formats without editing
+Python. Each entry wraps the IP address with a prefix and suffix string.
 
-Rather than hardcoding firewall syntax in the script, each vendor format could be
-driven by a YAML file that describes how to wrap an IP address — text to emit
-before it and text to emit after it. For example:
-
+`vendors.yaml`:
 ```yaml
 vendors:
-  cisco-ios:
-    prefix: "deny ip host "
-    suffix: " any log"
-  fortinet:
-    prefix: "set subnet "
+  palo-alto:
+    prefix: "set address TOR-BLOCK ip-netmask "
     suffix: "/32"
-  custom-siem:
-    prefix: '{"block": "'
+
+  json-block:
+    prefix: '{"action": "block", "ip": "'
     suffix: '"}'
+
+  plain-list:
+    prefix: ""
+    suffix: ""
 ```
 
-This would let users add new platforms or tweak existing syntax without touching
-Python, and would make the vendor list trivially extensible through a
-`--vendor-file` argument pointing at a local YAML.
+```bash
+# Use a custom vendor
+python3 tor_check.py 1.2.3.4 --firewall-format palo-alto --vendor-file vendors.yaml
+
+# Mix built-ins and custom vendors with 'all'
+python3 tor_check.py 1.2.3.4 --firewall-format all --vendor-file vendors.yaml
+```
+
+A YAML vendor with the same name as a built-in will override it. See
+`vendors.example.yaml` for a starter file with more examples. Requires
+`pyyaml` (`pip install pyyaml`).

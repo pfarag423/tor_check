@@ -1,0 +1,31 @@
+# Custom vendor output definitions for tor_check.py --vendor-file
+#
+# Each entry under "vendors" defines a simple prefix/suffix wrap around the IP.
+# Use this to add platforms not built into the script, or to override built-in
+# output with your own syntax.
+#
+# Usage:
+#   python3 tor_check.py 1.2.3.4 --firewall-format my-siem --vendor-file vendors.yaml
+#   python3 tor_check.py 1.2.3.4 --firewall-format all --vendor-file vendors.yaml
+
+vendors:
+
+  # Palo Alto Networks - add to an address object via CLI
+  palo-alto:
+    prefix: "set address TOR-BLOCK ip-netmask "
+    suffix: "/32"
+
+  # Windows Firewall (netsh) - block inbound from a single host
+  windows-netsh:
+    prefix: "netsh advfirewall firewall add rule name=\"Block TOR\" dir=in action=block remoteip="
+    suffix: ""
+
+  # Generic SIEM / JSON event
+  json-block:
+    prefix: '{"action": "block", "ip": "'
+    suffix: '"}'
+
+  # Plain list (e.g. for import into another tool)
+  plain-list:
+    prefix: ""
+    suffix: ""

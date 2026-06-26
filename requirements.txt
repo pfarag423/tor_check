@@ -1,3 +1,6 @@
 # Required for the IPv4 path (Tor DNSEL lookup).
 # The IPv6 / Onionoo path is standard-library only.
 dnspython>=2.0
+
+# Required only for --vendor-file (custom YAML vendor definitions).
+pyyaml>=6.0
