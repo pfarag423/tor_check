@@ -166,3 +166,30 @@ Both IPv4 and IPv6 variants are produced as appropriate.
 - Invalid IP arguments are rejected by `argparse` before any lookup.
 - Missing/unsupported `dnspython` produces a clear install hint (IPv4 path only).
 - A missing batch file fails with the OS error message, not a traceback.
+
+---
+
+## Future thoughts
+
+### Vendor-defined output via YAML
+
+Rather than hardcoding firewall syntax in the script, each vendor format could be
+driven by a YAML file that describes how to wrap an IP address — text to emit
+before it and text to emit after it. For example:
+
+```yaml
+vendors:
+  cisco-ios:
+    prefix: "deny ip host "
+    suffix: " any log"
+  fortinet:
+    prefix: "set subnet "
+    suffix: "/32"
+  custom-siem:
+    prefix: '{"block": "'
+    suffix: '"}'
+```
+
+This would let users add new platforms or tweak existing syntax without touching
+Python, and would make the vendor list trivially extensible through a
+`--vendor-file` argument pointing at a local YAML.
